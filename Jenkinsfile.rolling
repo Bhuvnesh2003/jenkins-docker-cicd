@@ -1,0 +1,136 @@
+cat > /root/jenkins-docker-cicd/Jenkinsfile.rolling <<'EOF'
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        IMAGE_NAME = 'bhuvnesh15/jenkins-docker-cicd'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        DEPLOY_DIR = '/var/lib/jenkins/rolling-deploy'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log -1 --oneline'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh '''
+                    set -eu
+                    test -f Dockerfile
+                    test -f index.html
+
+                    rm -rf build-context
+                    mkdir -p build-context
+                    cp Dockerfile build-context/Dockerfile
+
+                    sed "s#</body>#<p>Release: ${IMAGE_TAG}</p></body>#" \
+                        index.html > build-context/index.html
+
+                    export XDG_RUNTIME_DIR=/run/user/978
+
+                    podman build \
+                        -t "localhost/$IMAGE_NAME:$IMAGE_TAG" \
+                        build-context
+                '''
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh '''
+                    set -eu
+                    grep -q 'Jenkins CI/CD Pipeline Working!' index.html
+                    grep -q "Release: ${IMAGE_TAG}" build-context/index.html
+                    echo "TEST PASSED: homepage and release version verified"
+                '''
+            }
+        }
+
+        stage('Publish Image') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+                        export XDG_RUNTIME_DIR=/run/user/978
+
+                        printf '%s' "$DOCKER_PASSWORD" |
+                            podman login docker.io \
+                                --username "$DOCKER_USER" \
+                                --password-stdin
+
+                        podman push \
+                            "localhost/$IMAGE_NAME:$IMAGE_TAG" \
+                            "docker://docker.io/$IMAGE_NAME:$IMAGE_TAG"
+
+                        podman logout docker.io
+                    '''
+                }
+            }
+        }
+
+        stage('Rolling Deploy') {
+            steps {
+                sh '''
+                    set -eu
+                    test -x deploy.sh
+                    cp deploy.sh "$DEPLOY_DIR/deploy.sh"
+                    chmod 755 "$DEPLOY_DIR/deploy.sh"
+
+                    IMAGE="docker.io/$IMAGE_NAME" \
+                    TAG="$IMAGE_TAG" \
+                    bash "$DEPLOY_DIR/deploy.sh"
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh '''
+                    set -eu
+
+                    curl --fail --silent --show-error \
+                        http://127.0.0.1:18081/ > app-a.html
+                    curl --fail --silent --show-error \
+                        http://127.0.0.1:18082/ > app-b.html
+                    curl --fail --silent --show-error \
+                        http://127.0.0.1:18083/ > app-proxy.html
+
+                    grep -q "Release: ${IMAGE_TAG}" app-a.html
+                    grep -q "Release: ${IMAGE_TAG}" app-b.html
+                    grep -q "Release: ${IMAGE_TAG}" app-proxy.html
+
+                    echo "SUCCESS: release ${IMAGE_TAG} verified"
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Rolling deployment completed successfully.'
+        }
+        failure {
+            echo 'Pipeline failed. Inspect Console Output and verify rollback.'
+        }
+        always {
+            sh 'podman images || true'
+        }
+    }
+}
+EOF
+
