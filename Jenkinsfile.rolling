@@ -1,4 +1,3 @@
-cat > /root/jenkins-docker-cicd/Jenkinsfile.rolling <<'EOF'
 pipeline {
     agent any
 
