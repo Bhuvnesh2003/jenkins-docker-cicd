@@ -1,4 +1,3 @@
-<<'EOF'
 pipeline {
     agent any
 
