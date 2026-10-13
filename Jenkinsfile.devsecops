@@ -1,3 +1,4 @@
+<<'EOF'
 pipeline {
     agent any
 
@@ -30,25 +31,35 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    podman build \
-                      -t "$IMAGE_NAME:$IMAGE_TAG" .
+                    podman build -t "$IMAGE_NAME:$IMAGE_TAG" .
+                '''
+            }
+        }
+
+        stage('Export Image') {
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p "$REPORT_DIR"
+                    podman save \
+                      -o "$REPORT_DIR/image.tar" \
+                      "$IMAGE_NAME:$IMAGE_TAG"
                 '''
             }
         }
 
         stage('Trivy Security Scan') {
             steps {
-                sh '''
-                    set -eu
-                    mkdir -p "$REPORT_DIR"
-
-                    trivy image \
-                      --severity HIGH,CRITICAL \
-                      --exit-code 1 \
-                      --format json \
-                      --output "$REPORT_DIR/trivy-report.json" \
-                      "$IMAGE_NAME:$IMAGE_TAG"
-                '''
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                        trivy image \
+                          --input "$REPORT_DIR/image.tar" \
+                          --severity HIGH,CRITICAL \
+                          --exit-code 1 \
+                          --format json \
+                          --output "$REPORT_DIR/trivy-report.json"
+                    '''
+                }
             }
         }
 
@@ -65,7 +76,11 @@ pipeline {
             echo 'DevSecOps pipeline passed: no HIGH/CRITICAL findings.'
         }
         failure {
-            echo 'DevSecOps pipeline failed. Check build and security scan logs.'
+            echo 'Pipeline failed. Review the build and Trivy report.'
+        }
+        always {
+            sh 'rm -f security-reports/image.tar'
         }
     }
 }
+EOF
