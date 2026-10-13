@@ -1,0 +1,71 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "localhost/jenkins-docker-cicd"
+        IMAGE_TAG = "devsecops-${BUILD_NUMBER}"
+        REPORT_DIR = "security-reports"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and Test') {
+            steps {
+                sh '''
+                    set -eu
+                    test -f index.html
+                    test -f Dockerfile
+                    test -f nginx.conf
+                    echo "Application files verified."
+                '''
+            }
+        }
+
+        stage('Build Secure Image') {
+            steps {
+                sh '''
+                    set -eu
+                    podman build \
+                      -t "$IMAGE_NAME:$IMAGE_TAG" .
+                '''
+            }
+        }
+
+        stage('Trivy Security Scan') {
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p "$REPORT_DIR"
+
+                    trivy image \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --format json \
+                      --output "$REPORT_DIR/trivy-report.json" \
+                      "$IMAGE_NAME:$IMAGE_TAG"
+                '''
+            }
+        }
+
+        stage('Archive Security Report') {
+            steps {
+                archiveArtifacts artifacts: 'security-reports/trivy-report.json',
+                                 allowEmptyArchive: false
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'DevSecOps pipeline passed: no HIGH/CRITICAL findings.'
+        }
+        failure {
+            echo 'DevSecOps pipeline failed. Check build and security scan logs.'
+        }
+    }
+}
