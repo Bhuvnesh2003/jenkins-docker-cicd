@@ -5,6 +5,8 @@ pipeline {
         IMAGE_NAME = "localhost/jenkins-docker-cicd"
         IMAGE_TAG = "devsecops-${BUILD_NUMBER}"
         REPORT_DIR = "security-reports"
+        TEST_CONTAINER = "production-review-test-${BUILD_NUMBER}"
+        TEST_PORT = "18090"
     }
 
     stages {
@@ -49,37 +51,82 @@ pipeline {
 
         stage('Trivy Security Scan') {
             steps {
-                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                    sh '''
-                        trivy image \
-                          --input "$REPORT_DIR/image.tar" \
-                          --severity HIGH,CRITICAL \
-                          --exit-code 1 \
-                          --format json \
-                          --output "$REPORT_DIR/trivy-report.json"
-                    '''
-                }
+                sh '''
+                    set -eu
+                    trivy image \
+                      --input "$REPORT_DIR/image.tar" \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --format json \
+                      --output "$REPORT_DIR/trivy-report.json"
+                '''
+            }
+        }
+
+        stage('Runtime Health Check') {
+            steps {
+                sh '''
+                    set -eu
+
+                    cleanup() {
+                        podman rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
+                    }
+                    trap cleanup EXIT
+
+                    podman run -d \
+                      --name "$TEST_CONTAINER" \
+                      -p "127.0.0.1:${TEST_PORT}:8080" \
+                      "$IMAGE_NAME:$IMAGE_TAG"
+
+                    attempt=0
+                    until curl -fsS \
+                        "http://127.0.0.1:${TEST_PORT}/" \
+                        -o /dev/null; do
+                        attempt=$((attempt + 1))
+                        if [ "$attempt" -ge 15 ]; then
+                            echo "Health check failed."
+                            podman logs "$TEST_CONTAINER" || true
+                            exit 1
+                        fi
+                        sleep 1
+                    done
+
+                    echo "Health check passed: HTTP 200 OK"
+                    curl -fsS \
+                      "http://127.0.0.1:${TEST_PORT}/" \
+                      -o /dev/null
+                '''
             }
         }
 
         stage('Archive Security Report') {
             steps {
-                archiveArtifacts artifacts: 'security-reports/trivy-report.json',
-                                 allowEmptyArchive: false
+                archiveArtifacts(
+                    artifacts: 'security-reports/trivy-report.json',
+                    allowEmptyArchive: false
+                )
             }
         }
     }
 
     post {
-        success {
-            echo 'DevSecOps pipeline passed: no HIGH/CRITICAL findings.'
-        }
-        failure {
-            echo 'Pipeline failed. Review the build and Trivy report.'
-        }
         always {
-            sh 'rm -f security-reports/image.tar'
+            archiveArtifacts(
+                artifacts: 'security-reports/trivy-report.json',
+                allowEmptyArchive: true
+            )
+            sh '''
+                podman rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
+                rm -f "$REPORT_DIR/image.tar"
+            '''
+        }
+
+        success {
+            echo 'Production review passed: security scan and HTTP health check succeeded.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Review the failed stage and archived security report.'
         }
     }
 }
-
