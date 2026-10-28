@@ -53,9 +53,8 @@ replace_slot() {
 
     podman run -d \
         --name "$name" \
-        --network host \
+        -p "127.0.0.1:${port}:8080" \
         --security-opt label=disable \
-        -v "$config:/etc/nginx/conf.d/default.conf:ro" \
         "$image"
 
     wait_healthy "$port"
