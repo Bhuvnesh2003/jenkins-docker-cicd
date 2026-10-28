@@ -30,13 +30,14 @@ pipeline {
                     rm -rf build-context
                     mkdir -p build-context
                     cp Dockerfile build-context/Dockerfile
+                    cp nginx.conf build-context/nginx.conf
 
                     sed "s#</body>#<p>Release: ${IMAGE_TAG}</p></body>#" \
                         index.html > build-context/index.html
 
                     export XDG_RUNTIME_DIR=/run/user/978
 
-                    podman build \
+                    podman build --no-cache \
                         -t "localhost/$IMAGE_NAME:$IMAGE_TAG" \
                         build-context
                 '''
