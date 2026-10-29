@@ -1,0 +1,15 @@
+{
+  "title": "Demo Workload",
+  "uid": "demo",
+  "panels": [
+    {
+      "title": "Demo Up",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job=\"demo\"}"
+        }
+      ]
+    }
+  ]
+}

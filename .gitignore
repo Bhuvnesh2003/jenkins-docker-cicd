@@ -1,1 +1,3 @@
 security-reports/image.tar
+terraform/.terraform/
+terraform/*.tfstate*
