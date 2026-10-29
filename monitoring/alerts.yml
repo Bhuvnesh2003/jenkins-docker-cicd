@@ -1,0 +1,11 @@
+groups:
+  - name: demo-alerts
+    rules:
+      - alert: DemoDown
+        expr: up{job="demo"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Demo workload is down"
+          description: "Demo job has been down for more than 1 minute."

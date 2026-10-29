@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-chart
+description: Demo workload chart for the AI-Powered E-Commerce DevOps project
+type: application
+version: 0.1.0
+appVersion: "7"

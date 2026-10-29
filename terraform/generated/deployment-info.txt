@@ -1,0 +1,4 @@
+image = docker.io/bhuvnesh15/jenkins-docker-cicd:7
+app_a_url = http://127.0.0.1:18081/
+app_b_url = http://127.0.0.1:18082/
+proxy_url = http://127.0.0.1:18083/

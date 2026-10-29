@@ -1,0 +1,38 @@
+---
+- name: Prepare demo workload directories and configs
+  hosts: local
+  connection: local
+  gather_facts: false
+  vars:
+    app_image: docker.io/bhuvnesh15/jenkins-docker-cicd
+    app_tag: "7"
+    app_a_port: 18081
+    app_b_port: 18082
+    proxy_port: 18083
+  tasks:
+    - name: Ensure Ansible generated directory exists
+      ansible.builtin.file:
+        path: /root/jenkins-docker-cicd/ansible/generated
+        state: directory
+        mode: "0755"
+    - name: Write deployment summary file
+      ansible.builtin.copy:
+        dest: /root/jenkins-docker-cicd/ansible/generated/deployment-summary.txt
+        mode: "0644"
+        content: |
+          image = {{ app_image }}:{{ app_tag }}
+          app_a_url = http://127.0.0.1:{{ app_a_port }}/
+          app_b_url = http://127.0.0.1:{{ app_b_port }}/
+          proxy_url = http://127.0.0.1:{{ proxy_port }}/
+    - name: Health check the live rolling proxy
+      ansible.builtin.uri:
+        url: http://127.0.0.1:18083/
+        return_content: true
+        status_code: 200
+      register: proxy_health
+    - name: Verify proxy serves Release 7
+      ansible.builtin.assert:
+        that:
+          - "'Release: 7' in proxy_health.content"
+        fail_msg: "Proxy did not serve Release: 7"
+        success_msg: "Proxy serves Release: 7"
